@@ -1,0 +1,87 @@
+#!/usr/bin/env python
+# Parser.py
+
+import json
+import pandas as pd
+
+
+def get_sorted_data(input_file, num_samples=None):
+    """
+    get_sorted_data receives two parameters as input and return an output (.json format)
+    ------------------------------------------------------------------------------------
+    param input_file: input file (csv or json) including data
+    param num_samples: Optional parameter to implement "moving average filter" on data
+    return: a .jason file including nested data
+    """
+
+    if input_file.endswith(('.txt', '.csv')):
+
+        # Read the input csv file as a pandas dataframe
+        df = pd.read_csv(input_file, delimiter=' ', header=None,
+                         names=['osTimeStamp', 'Header', 'value'], usecols=range(3))
+
+        # Filter Headers (e.g. TS>A1 == A1)
+        df['Header'] = df['Header'].map(lambda x: x.lstrip('TS>'))
+
+        # Sort rows (data) based on the osTimeStamp
+        df.sort_values(['osTimeStamp'])
+
+        output = {}
+        for header in sorted(df['Header'].unique()):
+
+            # Extract all "value"s with the same "Header"
+            values = df[df['Header'] == header]['value']
+
+            # If num_samples != None, apply a moving average filter on values
+            # if the number of previous inputs < num_samples, the output is the average of available inputs
+            # e.g. num_samples=5 and number of entities=3, then output=sum(entities[0:2])/3
+            if num_samples:
+                values = values.rolling(window=num_samples, min_periods=1).mean()
+
+            # Desired output
+            output[header] = [{'osTimeStamp': str(df['osTimeStamp'][j]), 'value': int(values[j])}
+                              for j in df[df['Header'] == header].index]
+
+        return output
+
+    elif input_file.endswith('.json'):
+
+        # Read the input jason file
+        with open(input_file) as data_file:
+            data = json.load(data_file)
+
+        output = {}
+        for header in sorted(set(data)):
+
+            # Normalizing data using unique "Header"s
+            df = pd.json_normalize(data[header])
+
+            # Define "Header"s in pandas dataframe
+            df['Header'] = header
+
+            # Sort rows (data) based on the osTimeStamp
+            df.sort_values(['osTimeStamp'])
+
+            # If num_samples != None, apply a moving average filter on values
+            # if the number of previous inputs < num_samples, the output is the average of available inputs
+            # e.g. num_samples=5 and number of entities=3, then output=sum(entities[0:2])/3
+            if num_samples:
+                df['value'] = df['value'].rolling(window=num_samples, min_periods=1).mean()
+
+            # Desired output
+            output[header] = [{'osTimeStamp': str(df['osTimeStamp'][j]), 'value': int(df['value'][j])}
+                              for j in df[df['Header'] == header].index]
+
+        return output
+
+    else:
+        raise AttributeError('The input file is not supported')
+
+
+if __name__ == "__main__":
+    input_file = input('Enter the relative path of the file to parse: ')
+    num_samples = input('Enter the number of samples for the moving average filter: ')
+
+    # Print the nested output
+    nested_output = json.dumps(get_sorted_data(input_file, num_samples=num_samples), indent=4)
+    print(nested_output)
